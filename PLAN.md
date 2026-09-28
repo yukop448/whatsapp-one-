@@ -29,8 +29,8 @@ Para tu **vida personal** (no la empresa): citas, pagos, trámites, familia, com
 | Fase | Qué se construye | Estado |
 |---|---|---|
 | **1. Núcleo** | Asistente en la terminal, memoria de pendientes (SQLite), creación de agentes y delegación de tareas | ✅ Hecho |
-| **2. Rutina diaria** | Resumen automático cada mañana ("hoy tienes…"), alertas de pendientes vencidos y conversaciones que se recuerdan al cerrar el programa | ⏳ Siguiente |
-| **3. WhatsApp** | Hablarle por WhatsApp (API oficial de Meta). Solo responde a **tu** número | ⏳ |
+| **2. Rutina diaria** | Resumen automático cada mañana por WhatsApp ("hoy tienes…"), alertas de pendientes vencidos y conversaciones que se recuerdan al reiniciar | ⏳ Siguiente |
+| **3. WhatsApp** | Hablarle por WhatsApp (API oficial de Meta). Tu número recibe al asistente personal; los demás, atención al cliente con preguntas frecuentes. Incluye habilidades y 4 agentes listos | ✅ Hecho (falta conectarlo con tu cuenta de Meta, ver WHATSAPP.md) |
 | **4. Calendario y correo** | Conectar Google Calendar (citas reales) y Gmail (enviar la información, con tu aprobación antes de enviar) | ⏳ |
 | **5. Cotizaciones y documentos** | Enviarle fotos o PDF de cotizaciones y facturas para que las lea, las compare y te recuerde hacerles seguimiento | ⏳ |
 | **6. En la nube 24/7** | Publicarlo en un servidor (Railway/Render) para que funcione con el computador apagado | ⏳ |

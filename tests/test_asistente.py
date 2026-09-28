@@ -1,41 +1,12 @@
 """Pruebas sin gastar dinero: usamos un Claude "falso" que responde lo que le indiquemos."""
 
-from types import SimpleNamespace
-
 import pytest
 
 from asistente import db
 from asistente.agentes import ejecutar_agente
 from asistente.asistente import Asistente
 from asistente.nucleo import conversar
-
-
-def texto(t):
-    return SimpleNamespace(type="text", text=t)
-
-
-def usar(nombre, entrada, id_="t1"):
-    return SimpleNamespace(type="tool_use", name=nombre, input=entrada, id=id_)
-
-
-class ClaudeFalso:
-    """Imita client.beta.messages.create devolviendo respuestas preparadas en orden."""
-
-    def __init__(self, respuestas):
-        self.respuestas = list(respuestas)
-        self.llamadas = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
-
-    def _create(self, **kwargs):
-        # Copiamos los mensajes: la lista original sigue creciendo después de la llamada
-        self.llamadas.append({**kwargs, "messages": list(kwargs["messages"])})
-        stop_reason, contenido = self.respuestas.pop(0)
-        return SimpleNamespace(stop_reason=stop_reason, content=contenido)
-
-
-@pytest.fixture
-def conexion():
-    return db.conectar(":memory:")
+from conftest import ClaudeFalso, texto, usar
 
 
 def test_crear_y_listar_pendientes_por_fecha(conexion):
@@ -108,3 +79,45 @@ def test_agente_con_web_recibe_busqueda(conexion):
 def test_agente_inexistente(conexion):
     with pytest.raises(ValueError, match="No existe el agente"):
         ejecutar_agente(ClaudeFalso([]), conexion, "fantasma", "algo", "Usuario")
+
+
+def test_habilidades_se_cargan_en_el_agente(conexion):
+    db.crear_agentes_base(conexion)
+    claude = ClaudeFalso([("end_turn", [texto("Tabla comparativa...")])])
+    ejecutar_agente(claude, conexion, "cotizador", "Compara 3 neveras", "Usuario")
+    assert "Tabla comparativa (opción | precio total" in claude.llamadas[0]["system"]
+
+
+def test_crear_agente_con_habilidad_inexistente_falla(conexion):
+    claude = ClaudeFalso([
+        ("tool_use", [usar("crear_agente", {"nombre": "x", "rol": "r", "instrucciones": "i", "habilidades": ["magia"]})]),
+        ("end_turn", [texto("No existe esa habilidad.")]),
+    ])
+    Asistente(cliente=claude, conexion=conexion).responder("crea el agente x")
+    resultado = claude.llamadas[1]["messages"][-1]["content"][0]
+    assert resultado["is_error"] and "magia" in resultado["content"]
+    assert db.obtener_agente(conexion, "x") is None
+
+
+def test_todas_las_habilidades_tienen_nombre_y_descripcion():
+    from asistente.habilidades import cargar_habilidades
+
+    habilidades = cargar_habilidades()
+    assert {"atencion-clientes", "redaccion-mensajes", "cotizaciones", "investigacion", "planeacion"} <= set(habilidades)
+    for h in habilidades.values():
+        assert h.descripcion and h.contenido and not h.contenido.startswith("---")
+
+
+def test_recortar_historial_empieza_en_mensaje_de_texto():
+    from asistente.nucleo import recortar_historial
+
+    mensajes = [
+        {"role": "user", "content": "hola"},
+        {"role": "assistant", "content": [usar("listar_pendientes", {})]},
+        {"role": "user", "content": [{"type": "tool_result"}]},
+        {"role": "assistant", "content": [texto("listo")]},
+        {"role": "user", "content": "segundo"},
+        {"role": "assistant", "content": [texto("ok")]},
+    ]
+    assert recortar_historial(mensajes, 5)[0]["content"] == "segundo"
+    assert recortar_historial(mensajes, 10) is mensajes

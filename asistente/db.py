@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS agentes (
     rol           TEXT NOT NULL,   -- descripción corta: para qué sirve
     instrucciones TEXT NOT NULL,   -- cómo debe trabajar (su "manual")
     busca_en_web  INTEGER NOT NULL DEFAULT 0,
+    habilidades   TEXT NOT NULL DEFAULT '',  -- nombres separados por coma
     creado        TEXT NOT NULL
 );
 
@@ -55,10 +56,20 @@ def conectar(ruta: Path | str | None = None) -> sqlite3.Connection:
     ruta = Path(ruta or config.RUTA_DB)
     if str(ruta) != ":memory:":
         ruta.parent.mkdir(parents=True, exist_ok=True)
-    conexion = sqlite3.connect(ruta)
+    # check_same_thread=False: el servidor de WhatsApp atiende mensajes en otro hilo
+    conexion = sqlite3.connect(ruta, check_same_thread=False)
     conexion.row_factory = sqlite3.Row  # permite leer columnas por nombre
     conexion.executescript(ESQUEMA)
+    _actualizar_esquema(conexion)
     return conexion
+
+
+def _actualizar_esquema(conexion) -> None:
+    """Agrega columnas nuevas a bases de datos creadas con versiones anteriores."""
+    columnas = {fila["name"] for fila in conexion.execute("PRAGMA table_info(agentes)")}
+    if "habilidades" not in columnas:
+        conexion.execute("ALTER TABLE agentes ADD COLUMN habilidades TEXT NOT NULL DEFAULT ''")
+        conexion.commit()
 
 
 # ---------- Pendientes ----------
@@ -117,25 +128,72 @@ def actualizar_pendiente(conexion, pendiente_id: int, **cambios) -> dict:
 
 # ---------- Agentes ----------
 
-def crear_agente(conexion, nombre, rol, instrucciones, busca_en_web=False) -> dict:
+def crear_agente(conexion, nombre, rol, instrucciones, busca_en_web=False, habilidades=()) -> dict:
     nombre = nombre.strip().lower()
     if obtener_agente(conexion, nombre):
         raise ValueError(f"Ya existe un agente llamado '{nombre}'.")
     conexion.execute(
-        "INSERT INTO agentes (nombre, rol, instrucciones, busca_en_web, creado) VALUES (?, ?, ?, ?, ?)",
-        (nombre, rol, instrucciones, int(busca_en_web), _ahora()),
+        "INSERT INTO agentes (nombre, rol, instrucciones, busca_en_web, habilidades, creado) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (nombre, rol, instrucciones, int(busca_en_web), ",".join(habilidades), _ahora()),
     )
     conexion.commit()
     return obtener_agente(conexion, nombre)
 
 
+def _agente(fila) -> dict:
+    agente = dict(fila)
+    agente["habilidades"] = [h for h in agente["habilidades"].split(",") if h]
+    return agente
+
+
 def obtener_agente(conexion, nombre: str) -> dict | None:
     fila = conexion.execute("SELECT * FROM agentes WHERE nombre = ?", (nombre.strip().lower(),)).fetchone()
-    return dict(fila) if fila else None
+    return _agente(fila) if fila else None
 
 
 def listar_agentes(conexion) -> list[dict]:
-    return [dict(fila) for fila in conexion.execute("SELECT * FROM agentes ORDER BY nombre")]
+    return [_agente(fila) for fila in conexion.execute("SELECT * FROM agentes ORDER BY nombre")]
+
+
+# Agentes que vienen listos de fábrica (se crean la primera vez que arranca el asistente)
+AGENTES_BASE = [
+    {
+        "nombre": "redactor",
+        "rol": "Redacta mensajes y correos personales con el tono del usuario.",
+        "instrucciones": "Entrega el texto listo para copiar y pegar.",
+        "busca_en_web": False,
+        "habilidades": ["redaccion-mensajes"],
+    },
+    {
+        "nombre": "cotizador",
+        "rol": "Busca precios en internet y compara cotizaciones.",
+        "instrucciones": "Siempre entrega una tabla comparativa y una recomendación.",
+        "busca_en_web": True,
+        "habilidades": ["cotizaciones"],
+    },
+    {
+        "nombre": "investigador",
+        "rol": "Investiga trámites, servicios, lugares o personas con fuentes confiables.",
+        "instrucciones": "Responde primero lo más importante y siempre cita las fuentes.",
+        "busca_en_web": True,
+        "habilidades": ["investigacion"],
+    },
+    {
+        "nombre": "planeador",
+        "rol": "Organiza viajes, eventos familiares y listas de tareas o compras.",
+        "instrucciones": "Termina siempre con las fechas límite importantes.",
+        "busca_en_web": True,
+        "habilidades": ["planeacion"],
+    },
+]
+
+
+def crear_agentes_base(conexion) -> None:
+    """Crea los agentes de fábrica que todavía no existan."""
+    for agente in AGENTES_BASE:
+        if obtener_agente(conexion, agente["nombre"]) is None:
+            crear_agente(conexion, **agente)
 
 
 def registrar_ejecucion(conexion, agente, tarea, resultado) -> None:

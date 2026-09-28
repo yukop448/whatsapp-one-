@@ -49,6 +49,20 @@ def ejecutar_herramienta(herramientas: dict[str, Herramienta], nombre: str, entr
     return json.dumps(resultado, ensure_ascii=False, default=str), False
 
 
+def recortar_historial(mensajes: list, maximo: int) -> list:
+    """Deja solo los mensajes más recientes para no gastar de más en conversaciones largas.
+
+    El corte siempre empieza en un mensaje de texto tuyo (no en la mitad del uso de una
+    herramienta), porque Claude necesita ver cada herramienta junto a su resultado.
+    """
+    if len(mensajes) <= maximo:
+        return mensajes
+    for i in range(len(mensajes) - maximo, len(mensajes)):
+        if mensajes[i]["role"] == "user" and isinstance(mensajes[i]["content"], str):
+            return mensajes[i:]
+    return mensajes[-1:]
+
+
 def conversar(
     cliente: anthropic.Anthropic,
     sistema: str,
